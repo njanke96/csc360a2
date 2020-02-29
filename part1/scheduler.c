@@ -55,8 +55,7 @@ ucontext_t done_context; // a variable to temporarily store the context of a com
  * functiosn in this file.
  */
 void scheduler_init() {
-  // TODO: Initialize the state of the scheduler 
-  
+  // I did not need to use this function
 }
 
 
