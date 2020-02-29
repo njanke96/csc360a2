@@ -196,10 +196,14 @@ void task_sleep(size_t ms) {
  * \returns The read character code
  */
 int task_readchar() {
-  // TODO: Block this task until there is input available.
-  // To check for input, call getch(). If it returns ERR, no input was available.
-  // Otherwise, getch() will returns the character code that was read.
-  return ERR;
+  // Block this task until there is input available.
+  int k = getch();
+  while (k == ERR) {
+    // return control to the scheduler and try again
+    swapcontext(&tasks[current_task].context, &sched);
+    k = getch();
+  }
+  return k;
 }
 
 // increment current task, go to zero if we go out of bounds
