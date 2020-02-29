@@ -50,4 +50,7 @@ void task_sleep(size_t ms);
  */
 int task_readchar();
 
+void choose_new_task();
+int first_task_waiting();
+
 #endif

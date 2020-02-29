@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <curses.h>
 #include <ucontext.h>
+#include <unistd.h>
 
 #include "util.h"
 
@@ -31,11 +32,19 @@ typedef struct task_info {
   //   d. Was the task blocked waiting for user input? Once you successfully
   //      read input, you will need to save it here so it can be returned.
 
+  // true if the task is complete
   bool task_complete;
+
+  // true if the task is being waited for
+  bool must_complete;
+
+  // the task is not allowed to execute until AT LEAST this time (in millis)
+  size_t wake_time;
+
 } task_info_t;
 
 int current_task = 0; //< The handle of the currently-executing task
-int num_tasks = 1;    //< The number of tasks created so far
+int num_tasks = 0;    //< The number of tasks created so far
 task_info_t tasks[MAX_TASKS]; //< Information for every task
 
 ucontext_t sched; // the scheduler's context
@@ -57,7 +66,7 @@ void scheduler_init() {
  * because of how the contexts are set up in the task_create function.
  */
 void task_exit() {
-  printf("task_exit()\n");
+  //printf("task_exit()\n");
 
   // mark this task as complete and pick up where we left off
   tasks[current_task].task_complete = true;
@@ -73,7 +82,7 @@ void task_exit() {
 void task_create(task_t* handle, task_fn_t fn) {
   // Quick check to determine if we have reached the task limit
   if (num_tasks == MAX_TASKS) {
-    printf("Task limit reached! The program will exit.\n");
+    //printf("Task limit reached! The program will exit.\n");
     exit(-1);
   }
 
@@ -83,6 +92,11 @@ void task_create(task_t* handle, task_fn_t fn) {
   
   // Set the task handle to this index, since task_t is just an int
   *handle = index;
+
+  // initial state
+  tasks[index].task_complete = false;
+  tasks[index].must_complete = false;
+  tasks[index].wake_time = 0;
  
   // We're going to make two contexts: one to run the task, and one that runs at the end of the task so we can clean up. Start with the second
   
@@ -119,11 +133,31 @@ void task_create(task_t* handle, task_fn_t fn) {
 void task_wait(task_t handle) {
   // Block this task until the specified task has exited.
 
-  // swap context to the task pointed to by handle
   current_task = (int)handle;
-  swapcontext(&sched, &tasks[handle].context);
+  tasks[current_task].must_complete = true;
 
-  printf("task_wait has control again\n");
+  // check if the task is complete
+  if (tasks[current_task].task_complete) {
+    // the task is complete, no need to context switch or wait
+    return;
+  }
+
+  // swap context to the task pointed to by handle
+  swapcontext(&sched, &tasks[current_task].context);
+
+  // the task is complete at this point
+
+  //printf("task_wait has control again\n");
+
+  // run other tasks being waited for until we are done
+  int next_index = first_task_waiting();
+  while (next_index != -1) {
+    choose_new_task();
+    swapcontext(&sched, &tasks[current_task].context);
+    next_index = first_task_waiting();
+  }
+
+  //printf("task_wait says no more tasks waiting\n");
 }
 
 /**
@@ -134,8 +168,24 @@ void task_wait(task_t handle) {
  * \param ms  The number of milliseconds the task should sleep.
  */
 void task_sleep(size_t ms) {
-  // TODO: Block this task until the requested time has elapsed.
-  // Hint: Record the time the task should wake up instead of the time left for it to sleep. The bookkeeping is easier this way.
+  // Block this task until the requested time has elapsed.
+
+  // set the wake time on this task
+  tasks[current_task].wake_time = time_ms() + ms;
+
+  // remember this task's index
+  int sleeping = current_task;
+
+  // in the meantime, run a new task if one is ready
+  // this call may simply block until this task is woken up if another task is not available
+  choose_new_task();
+
+  if (sleeping == current_task) {
+    // we never changed tasks, no need for a context switch
+    return;
+  }
+
+  swapcontext(&tasks[sleeping].context, &tasks[current_task].context);
 }
 
 /**
@@ -150,4 +200,43 @@ int task_readchar() {
   // To check for input, call getch(). If it returns ERR, no input was available.
   // Otherwise, getch() will returns the character code that was read.
   return ERR;
+}
+
+// increment current task, go to zero if we go out of bounds
+void next_task() {
+  current_task++;
+  if (current_task >= num_tasks) {
+    current_task = 0;
+  }
+}
+
+/** Finds a task that is ready for execution, sets current_task to it's index 
+ * This may loop until a task is woken up
+ */
+void choose_new_task() {
+  task_info_t task = tasks[current_task];
+
+  // set current_task to the next task until we have a suitable task
+  while (true) {
+    next_task();
+    task = tasks[current_task];
+
+    if (task.wake_time <= time_ms() && !task.task_complete) {
+      // we found our task
+      break;
+    }
+  }
+}
+
+/** Return the index first uncompleted task in the array which is being waited for
+ * Return -1 if no tasks are being waited for
+ */
+int first_task_waiting() {
+  for (size_t i = 0; i < num_tasks; i++) {
+    if (!tasks[i].task_complete && tasks[i].must_complete) {
+      return (int)i;
+    }
+  }
+
+  return -1;
 }
