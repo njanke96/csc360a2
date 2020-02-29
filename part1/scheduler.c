@@ -30,11 +30,16 @@ typedef struct task_info {
   //   c. If the task is waiting for another task, which task is it waiting for?
   //   d. Was the task blocked waiting for user input? Once you successfully
   //      read input, you will need to save it here so it can be returned.
+
+  bool task_complete;
 } task_info_t;
 
 int current_task = 0; //< The handle of the currently-executing task
 int num_tasks = 1;    //< The number of tasks created so far
 task_info_t tasks[MAX_TASKS]; //< Information for every task
+
+ucontext_t sched; // the scheduler's context
+ucontext_t done_context; // a variable to temporarily store the context of a completed task
 
 /**
  * Initialize the scheduler. Programs should call this before calling any other
@@ -42,6 +47,7 @@ task_info_t tasks[MAX_TASKS]; //< Information for every task
  */
 void scheduler_init() {
   // TODO: Initialize the state of the scheduler 
+  
 }
 
 
@@ -51,7 +57,11 @@ void scheduler_init() {
  * because of how the contexts are set up in the task_create function.
  */
 void task_exit() {
-  // TODO: Handle the end of a task's execution here
+  printf("task_exit()\n");
+
+  // mark this task as complete and pick up where we left off
+  tasks[current_task].task_complete = true;
+  swapcontext(&done_context, &sched);
 }
 
 /**
@@ -61,6 +71,12 @@ void task_exit() {
  * \param fn      The new task will run this function.
  */
 void task_create(task_t* handle, task_fn_t fn) {
+  // Quick check to determine if we have reached the task limit
+  if (num_tasks == MAX_TASKS) {
+    printf("Task limit reached! The program will exit.\n");
+    exit(-1);
+  }
+
   // Claim an index for the new task
   int index = num_tasks;
   num_tasks++;
@@ -101,7 +117,13 @@ void task_create(task_t* handle, task_fn_t fn) {
  * \param handle  This is the handle produced by task_create
  */
 void task_wait(task_t handle) {
-  // TODO: Block this task until the specified task has exited.
+  // Block this task until the specified task has exited.
+
+  // swap context to the task pointed to by handle
+  current_task = (int)handle;
+  swapcontext(&sched, &tasks[handle].context);
+
+  printf("task_wait has control again\n");
 }
 
 /**

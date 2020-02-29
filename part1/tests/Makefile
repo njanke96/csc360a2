@@ -1,4 +1,4 @@
-CC := clang
+CC := gcc
 CFLAGS := -g -Wall -Wno-deprecated-declarations -Werror
 
 TESTS := test1 test2 test3 test4
