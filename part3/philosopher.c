@@ -5,6 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "philosopher.h"
+
 // a fork on the heap
 struct fork {
     int in_use; // 1 true 0 false
@@ -20,6 +22,9 @@ typedef struct philosopher {
 
     // this philosopher's name
     char name[64];
+
+    // how many times eaten
+    int eat_count;
 } philosopher_t;
 
 // our semaphore
@@ -28,7 +33,43 @@ sem_t semaphore;
 /* Philosopher thread */
 void* philo_thread(void *philo) {
     philosopher_t *phil = (philosopher_t *) philo;
-    printf("I am %s\n", phil->name);
+
+    printf("%s: I'm thinking.\n", phil->name);
+    sleep_random();
+    
+    while (phil->eat_count < 5) {
+        sem_wait(&semaphore);
+        // critical section
+
+        // try to pick up both forks
+        if (phil->left->in_use == 0 && phil->right->in_use == 0) {
+            // pick them up and eat
+            printf("%s: I'm picking up forks.\n", phil->name);
+            phil->left->in_use = 1;
+            phil->right->in_use = 1;
+
+            printf("%s: Nom nom nom.\n", phil->name);
+            phil->eat_count++;
+
+            sem_post(&semaphore);
+            sleep_random();
+            sem_wait(&semaphore);
+
+            // put the forks down
+            printf("%s: I'm putting my forks down.\n", phil->name);
+            phil->left->in_use = 0;
+            phil->right->in_use = 0;
+
+        } else {
+            printf("%s: I don't have two forks, I'm going to think some more.\n", phil->name);
+        }
+
+        sem_post(&semaphore);
+        sleep_random();
+    }
+
+    printf("%s: I'm full.\n", phil->name);
+
     return NULL;
 }
 
@@ -55,30 +96,35 @@ int main() {
     philosopher_t phil1;
     phil1.left = fork1;
     phil1.right = fork5;
+    phil1.eat_count = 0;
     strcpy(phil1.name, "Philosopher 1");
 
     // Philosopher 2
     philosopher_t phil2;
     phil2.left = fork2;
     phil2.right = fork1;
+    phil2.eat_count = 0;
     strcpy(phil2.name, "Philosopher 2");
 
     // Philosopher 3
     philosopher_t phil3;
     phil3.left = fork3;
     phil3.right = fork2;
+    phil3.eat_count = 0;
     strcpy(phil3.name, "Philosopher 3");
 
     // Philosopher 4
     philosopher_t phil4;
     phil4.left = fork4;
     phil4.right = fork3;
+    phil4.eat_count = 0;
     strcpy(phil4.name, "Philosopher 4");
 
     // Philosopher 5
     philosopher_t phil5;
     phil5.left = fork5;
     phil5.right = fork4;
+    phil5.eat_count = 0;
     strcpy(phil5.name, "Philosopher 5");
 
     // start the threads
@@ -105,4 +151,10 @@ int main() {
 
     sem_destroy(&semaphore);
     return 0;
+}
+
+/* Sleep for a random number of seconds up to 5 seconds */
+void sleep_random() {
+    int randint = (rand() % 5) + 1;
+    sleep(randint);
 }
